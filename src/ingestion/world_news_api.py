@@ -41,9 +41,6 @@ class WorldNewsAPIClient:
 
     def fetch_financial_news(self, days_back : int = 1) -> list[dict]:
         
-        
-        
-        
         params = SearchParams()
         query = params.model_dump(by_alias=True,exclude_none=True)
         # print(params)
