@@ -33,10 +33,9 @@ class SearchParams(BaseModel):
 
 
 class WorldNewsAPIClient:
-    def __init__(self) -> None:
-        self.settings = Settings() # type: ignore
+    def __init__(self, settings = Settings) -> None:
         self.base_url = "https://api.worldnewsapi.com/search-news?"
-        self.headers = {'x-api-key': self.settings.NEWS_API_KEY}
+        self.headers = {'x-api-key': settings.NEWS_API_KEY}
         
 
     def fetch_financial_news(self, days_back : int = 1) -> list[dict]:

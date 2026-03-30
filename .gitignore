@@ -3,3 +3,5 @@ CLAUDE.md
 .env
 
 .venv
+
+src/processing/__pycache__/
