@@ -7,7 +7,7 @@ from src.processing.embeddings import EmbeddingGenerator
 class Deduplicator:
     def __init__(self, embedding_generator: EmbeddingGenerator) -> None:
         self.embedding_generator = embedding_generator
-        self.settings = Settings()
+        self.settings = Settings()      # type: ignore 
         
     def cosine_similarity(self, a:np.ndarray, b:np.ndarray) -> float:
         return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
