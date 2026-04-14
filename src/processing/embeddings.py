@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer
 from src.config import Settings
 import numpy as np
 
-
+#Converts text into numerical vectors (arrays of numbers)
 class EmbeddingGenerator:
     def __init__(self, settings: Settings) -> None:
         self.model = SentenceTransformer(settings.EMBEDDING_MODEL)

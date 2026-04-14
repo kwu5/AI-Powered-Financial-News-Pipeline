@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }} — {{ date }}</title>
+    <style>
+        body {
+            font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+            color: #222;
+            line-height: 1.6;
+        }
+        header {
+            border-bottom: 2px solid #0055aa;
+            margin-bottom: 30px;
+            padding-bottom: 10px;
+        }
+        h1 { color: #0055aa; margin: 0; }
+        h2 {
+            color: #0055aa;
+            margin-top: 30px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 4px;
+        }
+        ul { padding-left: 22px; }
+        li { margin-bottom: 6px; }
+        p { margin: 10px 0; }
+        .date { color: #666; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>{{ title }}</h1>
+        <div class="date">{{ date }}</div>
+    </header>
+    <main>
+        {{ content | safe }}
+    </main>
+</body>
+</html>

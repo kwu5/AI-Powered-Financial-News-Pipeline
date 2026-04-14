@@ -17,5 +17,6 @@ class Settings(BaseSettings):
     MAX_ARTICLES_PER_DAY: int = 30
     SIMILARITY_THRESHOLD: float = 0.85
     DAILY_RUN_HOUR: int = 18  
+    OUTPUT_DIR: str = "./output"
 
 
