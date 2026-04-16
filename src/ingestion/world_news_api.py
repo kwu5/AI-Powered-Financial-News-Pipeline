@@ -33,7 +33,7 @@ class SearchParams(BaseModel):
 
 
 class WorldNewsAPIClient:
-    def __init__(self, settings = Settings) -> None:
+    def __init__(self, settings:Settings) -> None:
         self.base_url = "https://api.worldnewsapi.com/search-news?"
         self.headers = {'x-api-key': settings.NEWS_API_KEY}
         
@@ -54,7 +54,7 @@ class WorldNewsAPIClient:
         
 
 if __name__ == "__main__":
-    client = WorldNewsAPIClient()
+    client = WorldNewsAPIClient(Settings()) #type:ignore
     result = client.fetch_financial_news()
     print(result)
     

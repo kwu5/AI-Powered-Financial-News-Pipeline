@@ -12,7 +12,7 @@ FEED_URLS = [
     "https://ir.thomsonreuters.com/rss/news-releases.xml?items=15",                         # Reuters Business
 ]
 
-class RSSREADER:
+class RSSReader:
     def __init__(self):
         self.feed_urls = FEED_URLS
     
@@ -47,7 +47,7 @@ class RSSREADER:
 
 
 if __name__ == '__main__':
-    rssreder = RSSREADER()
+    rssreder = RSSReader()
     result = rssreder.fetch_from_feeds()
     print(result)
     print("-------------------------")

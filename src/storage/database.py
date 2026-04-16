@@ -29,7 +29,7 @@ class DailyReport(Base):
     
     
 
-class DataBase:
+class Database:
     def __init__(self) -> None:
         self.engine = create_engine(Settings().DATABASE_URL)    #type: ignore
         Base.metadata.create_all(self.engine)
@@ -93,7 +93,7 @@ class DataBase:
 
 
 if __name__ == '__main__':
-      db = DataBase()
+      db = Database()
 
       # Test save_articles
       articles = [
