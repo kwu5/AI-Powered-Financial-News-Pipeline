@@ -30,26 +30,26 @@ class Deduplicator:
                 kept.append(article)
                 kept_embeddings.append(embedding)
 
-        print(f"Deduplication: {len(articles)} → {len(kept)} articles ({len(articles) - len(kept)}removed)")
+        print(f"Deduplication: {len(articles)} -> {len(kept)} articles ({len(articles) - len(kept)} removed)")
         return kept
         
     
 if __name__ == '__main__':
     embeddingGenerator = EmbeddingGenerator(Settings())     # type: ignore
     deduplicator = Deduplicator(embeddingGenerator)
-    # Identical direction → similarity ≈ 1.0
+    # Identical direction -> similarity ≈ 1.0
     a = np.array([0.6, 0.8, 0.0])
     b = np.array([0.6, 0.8, 0.0])
     cs1 = deduplicator.cosine_similarity(a, b)
     print(cs1)
 
-    # Similar → similarity ≈ 0.9+
+    # Similar -> similarity ≈ 0.9+
     a = np.array([0.6, 0.8, 0.0])
     b = np.array([0.5, 0.85, 0.1])
     cs2 = deduplicator.cosine_similarity(a, b)
     print(cs2)
 
-    # Different → similarity ≈ 0.0
+    # Different -> similarity ≈ 0.0
     a = np.array([1.0, 0.0, 0.0])
     b = np.array([0.0, 1.0, 0.0])
     cs3 = deduplicator.cosine_similarity(a, b)

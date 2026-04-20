@@ -61,12 +61,23 @@ class Database:
         finally:
             session.close()
     
-    #insert a DailyReport
+    #upsert a DailyReport keyed by today's date
     def save_report(self, content:str, article_count: int) :
         session = self.SessionLocal()
         try:
-            dailyReport = DailyReport(content=content, article_count=article_count,created_at=datetime.now().isoformat(),report_date=datetime.now().strftime("%Y-%m-%d"))
-            session.add(dailyReport)
+            today = datetime.now().strftime("%Y-%m-%d")
+            existing = session.query(DailyReport).filter_by(report_date=today).first()
+            if existing:
+                existing.content = content
+                existing.article_count = article_count
+                existing.created_at = datetime.now().isoformat()
+            else:
+                session.add(DailyReport(
+                    content=content,
+                    article_count=article_count,
+                    created_at=datetime.now().isoformat(),
+                    report_date=today,
+                ))
             session.commit()
         except Exception as e:
             session.rollback()

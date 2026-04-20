@@ -47,7 +47,7 @@ class WorldNewsAPIClient:
         response = requests.get(self.base_url, params=query, headers=self.headers)
 
         if response.status_code == 200:
-            return response.json()
+            return response.json().get("news", [])
         else:
             print(f"Error: {response.status_code} - {response.text}")
             return []
