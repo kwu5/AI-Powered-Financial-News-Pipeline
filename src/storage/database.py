@@ -27,7 +27,6 @@ class DailyReport(Base):
     article_count = Column(Integer)
     created_at = Column(String)
     
-    
 
 class Database:
     def __init__(self) -> None:

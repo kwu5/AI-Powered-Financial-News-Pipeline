@@ -7,24 +7,12 @@ feeds:
     url: https://finance.yahoo.com/news/rssindex
     category: general
 
-  - name: MarketWatch Top Stories
-    url: https://feeds.marketwatch.com/marketwatch/topstories/
-    category: general
-
-  - name: NYT Business
-    url: https://rss.nytimes.com/services/xml/rss/nyt/Business.xml
-    category: general
-
   - name: BBC Business
     url: http://feeds.bbci.co.uk/news/business/rss.xml
     category: general
 
-  - name: Investing.com News
-    url: https://www.investing.com/rss/news.rss
-    category: general
-
-  - name: Seeking Alpha Market Currents
-    url: https://seekingalpha.com/market_currents.xml
+  - name: The Guardian Business
+    url: https://www.theguardian.com/business/rss
     category: general
 
   - name: CoinDesk
