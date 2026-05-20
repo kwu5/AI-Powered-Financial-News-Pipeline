@@ -4,6 +4,7 @@ CLAUDE.md
 
 .venv
 
-src/processing/__pycache__/
+__pycache__/
+*.pyc 
 
 data/
