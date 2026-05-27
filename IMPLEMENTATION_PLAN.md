@@ -105,8 +105,8 @@ The daily-briefing structured model is unchanged from the MVP.
 
 | Ship | Dates | Focus | Status |
 |---|---|---|---|
-| A | 2026-05-20 → 05-22 | Ingestion overhaul — RSS-first, full-text extraction, source health | **Current** |
-| B | 2026-05-23 → 05-25 | Dedup Stages 1–2 (URL canon + content hash); wipe + recreate DB | Planned |
+| A | 2026-05-20 → 05-22 | Ingestion overhaul — RSS-first, full-text extraction, source health | Done |
+| B | 2026-05-23 → 05-25 | Dedup Stages 1–2 (URL canon + content hash); wipe + recreate DB | **Current** |
 | C | 2026-05-26 → 05-28 | Chunking layer + chunk-level embeddings indexed in ChromaDB | Planned |
 | D | 2026-05-29 → 05-31 | Retriever + grounded cited Q&A; Streamlit skeleton | Planned |
 | E | 2026-06-01 → 06-03 | Labeled test set (50–100 query/relevant-doc pairs) | Planned |
@@ -119,30 +119,74 @@ The daily-briefing structured model is unchanged from the MVP.
 the previous ship slipped, and rewrite only the next ship's detail section to full
 resolution. Keep one ship detailed at a time.
 
-### Ship A — Ingestion overhaul (CURRENT, 2026-05-20 → 2026-05-22)
+### Ship B — Dedup Stages 1–2 + DB rebuild (CURRENT)
 
-**Goal:** RSS-first ingestion with full-text extraction and per-source health
-monitoring. Commit the in-progress work first.
+**Goal:** Insert two cheap pre-embedding dedup stages — canonical URL and
+content hash — so the existing similarity dedup (now Stage 3) only sees
+survivors. Stages 1–2 are also enforced at the DB layer via UNIQUE constraints,
+which catches cross-day duplicates (syndicated wire copy, re-publishes) that
+in-batch dedup can't see. Wipe and recreate `data/news.db` to add the new
+columns — no Alembic. `output/*.md` is preserved.
 
-- [ ] Commit the uncommitted Week 1 changes already in the working tree
-      (`rss_reader.py`, `world_news_api.py`, `config.py`, `test_ingestion.py`,
-      `requirements.txt`).
-- [ ] Finalize the 8–10 free feed list. Candidates: Reuters Business, CNBC,
-      MarketWatch, Yahoo Finance, CoinDesk (crypto), Federal Reserve press
-      releases, SEC press releases, Investing.com markets.
-- [ ] Move the feed list to config (env var or YAML) — not hardcoded.
-- [ ] Add a full-text extraction fallback chain: `trafilatura` → `newspaper3k`
-      → `readability-lxml`. Record which path succeeded as `extraction_method`.
-- [ ] Per-source health tracking: success count, last-success timestamp,
-      extraction-success rate; log on every run.
-- [ ] Demote `WorldNewsAPIClient` to secondary — call only if RSS yield is below
-      threshold (~15 articles) or in backfill mode.
-- [ ] Normalize all timestamps to UTC ISO 8601 at the ingestion boundary.
-- [ ] Update `tests/test_ingestion.py`.
+**Why two stages before the embedding stage?** They're effectively free,
+deterministic, and they shrink the candidate set before we pay for embeddings.
+URL canonicalization catches the same article reached via different tracking
+params; content hashing catches identical text published under different URLs
+(wire syndication).
 
-**Done when:** a single `main.py --mode ingest` pulls full text from 8+ feeds,
-logs per-source health, and falls back to World News API only when RSS yield is
-short.
+#### Tasks
+
+- [ ] **Schema additions** in `src/storage/database.py` — add to `Article`:
+      - `canonical_url: String, unique=True, nullable=False`
+      - `content_hash: String, unique=True, nullable=False`
+      - `extraction_method: String, nullable=True` (already populated by the
+        RSS reader; promote it from dict-only to a real column)
+      - `indexed: Boolean, default=False` (chunked + embedded into ChromaDB —
+        consumed in Ship C, defined now to avoid a second DB wipe)
+- [ ] **New module `src/processing/url_canon.py`** — `canonicalize_url(url: str) -> str`:
+      lowercase scheme + host, strip default ports, drop fragments, strip
+      tracking params (`utm_*`, `fbclid`, `gclid`, `mc_*`, `ref`, `source`,
+      `_hsenc`, `_hsmi`), normalize trailing slash. Unit-test with feed-shaped
+      fixtures.
+- [ ] **New module `src/processing/content_hash.py`** —
+      `compute_content_hash(article: dict) -> str`: sha256 over normalized
+      `title + "\n" + content` (lowercase, collapse whitespace, strip
+      non-alphanumeric). Unit-test that paraphrases hash differently and that
+      whitespace/case variations hash the same.
+- [ ] **Wire population into the pipeline** (`src/pipeline.py`) — after the
+      RSS/WNA fetch, before dedup, set `canonical_url` and `content_hash` on
+      each article dict.
+- [ ] **Stage the deduplicator** — refactor `Deduplicator` to run:
+      Stage 1 (canonical_url, in-batch) → Stage 2 (content_hash, in-batch) →
+      Stage 3 (existing cosine similarity). Log per-stage drop counts on one
+      summary line.
+- [ ] **DB-layer dedup against history** — `db.save_articles` should also
+      catch cross-run duplicates: skip when either `canonical_url` or
+      `content_hash` already exists. Cleaner than relying on UNIQUE-constraint
+      exceptions.
+- [ ] **Wipe + recreate** — instruct user to `rm data/news.db`; Database
+      constructor's `create_all` rebuilds with the new schema. Confirm
+      `output/*.md` untouched.
+- [ ] **Tests** — `tests/test_processing.py` unit tests for `canonicalize_url`
+      and `compute_content_hash`; end-to-end check that obvious dupes get
+      culled (e.g. inject a known wire-copy pair).
+- [ ] **Smoke test** — run the pipeline twice on the same day. First run:
+      log shows per-stage drop counts. Second run: zero re-saves of Run-1
+      articles. New rows from high-cadence feeds (e.g. Yahoo publishing during
+      the gap between runs) are expected and fine — what must NOT happen is
+      that a row already in the DB gets re-inserted under a different
+      canonical_url or content_hash. `tests/smoke_ship_b.py` checks this by
+      flagging "twin" pairs (same source + matching title prefix).
+
+**Done when:** a fresh DB rebuilds cleanly with `canonical_url` + `content_hash`
++ `extraction_method` + `indexed`; pipeline logs show per-stage dedup drop
+counts; `tests/smoke_ship_b.py` reports zero twins on a same-day second run;
+`output/*.md` preserved from before the wipe.
+
+**Deferred to later ships:** the `indexed` column gets *used* in Ship C (only
+re-chunk articles where `indexed = False`). Stage 3 (embedding similarity)
+stays in-batch — checking it against history would mean loading all prior
+embeddings, which we'll get for free once Ship C indexes chunks in ChromaDB.
 
 ## Risk register
 

@@ -1,37 +1,69 @@
 
+import logging
 from typing import Dict, List
 import numpy as np
 from src.config import Settings
 from src.processing.embeddings import EmbeddingGenerator
 
+logger = logging.getLogger(__name__)
+
+
 class Deduplicator:
     def __init__(self, embedding_generator: EmbeddingGenerator) -> None:
         self.embedding_generator = embedding_generator
-        self.settings = Settings()      # type: ignore 
-        
-    def cosine_similarity(self, a:np.ndarray, b:np.ndarray) -> float:
+        self.settings = Settings()      # type: ignore
+
+    def cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
-        
-    def deduplicate_articles(self, articles: List[Dict]) -> List[Dict]:
+
+    def _dedup_by_key(self, articles: List[Dict], key: str) -> List[Dict]:
+        """Keep the first article seen for each unique value of `articles[i][key]`."""
+        seen = set()
         kept = []
-        kept_embeddings = []
-        
-        for article in articles:
-            text = article["title"] + " " + article.get("description","")
-            embedding = self.embedding_generator.generate_embedding(text)
-            
-            is_duplicate = False
-            for kept_emb in kept_embeddings:
-                if self.cosine_similarity(embedding, kept_emb) >=self.settings.SIMILARITY_THRESHOLD:
-                    is_duplicate = True
-                    break
-
-            if not is_duplicate:
-                kept.append(article)
-                kept_embeddings.append(embedding)
-
-        print(f"Deduplication: {len(articles)} -> {len(kept)} articles ({len(articles) - len(kept)} removed)")
+        for a in articles:
+            v = a[key]
+            if v in seen:
+                continue
+            seen.add(v)
+            kept.append(a)
         return kept
+
+    def _dedup_by_similarity(self, articles: List[Dict]) -> List[Dict]:
+        """Drop articles whose title+description embedding is too close to a kept one."""
+        kept: List[Dict] = []
+        kept_embeddings: List[np.ndarray] = []
+        for a in articles:
+            text = a["title"] + " " + a.get("description", "")
+            emb = self.embedding_generator.generate_embedding(text)
+            if any(
+                self.cosine_similarity(emb, e) >= self.settings.SIMILARITY_THRESHOLD
+                for e in kept_embeddings
+            ):
+                continue
+            kept.append(a)
+            kept_embeddings.append(emb)
+        return kept
+
+    def deduplicate_articles(self, articles: List[Dict]) -> List[Dict]:
+        """Run all three dedup stages and log per-stage drops.
+
+        Stage 1: canonical_url (exact match)
+        Stage 2: content_hash (sha256 of normalized title+content)
+        Stage 3: cosine similarity of title+description embeddings
+        """
+        n0 = len(articles)
+        after_url = self._dedup_by_key(articles, "canonical_url")
+        n1 = len(after_url)
+        after_hash = self._dedup_by_key(after_url, "content_hash")
+        n2 = len(after_hash)
+        after_sim = self._dedup_by_similarity(after_hash)
+        n3 = len(after_sim)
+
+        logger.info(
+            f"Dedup: {n0} -> {n1} (url) -> {n2} (hash) -> {n3} (sim) "
+            f"[dropped {n0 - n1}/{n1 - n2}/{n2 - n3}]"
+        )
+        return after_sim
         
     
 if __name__ == '__main__':

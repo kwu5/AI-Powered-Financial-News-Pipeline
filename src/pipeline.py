@@ -1,13 +1,19 @@
+import logging
+
 from src.config import Settings
 from src.ingestion.world_news_api import WorldNewsAPIClient
 from src.ingestion.rss_reader import RSSReader
 from src.processing.cleaner import TextCleaner
+from src.processing.content_hash import compute_content_hash
 from src.processing.embeddings import EmbeddingGenerator
 from src.processing.deduplicator import Deduplicator
+from src.processing.url_canon import canonicalize_url
 from src.storage.database import Database
 from src.storage.vector_store import VectorStore
 from src.summarization.llm_client import LLMClient
 from src.summarization.report_generator import ReportGenerator
+
+logger = logging.getLogger(__name__)
 
 
 # ---------- Module-level component init (heavy models load once on import) ----------
@@ -36,8 +42,20 @@ def run_pipeline() -> tuple[str, int]:
     """
     from datetime import datetime
 
-    # 1. Fetch from both sources
-    articles = news_api.fetch_financial_news() + rss.fetch_from_feeds()
+    # 1. Fetch RSS first; World News API is a fallback when RSS yield is low.
+    articles = rss.fetch_from_feeds()
+    threshold = settings.RSS_YIELD_THRESHOLD
+    if len(articles) < threshold:
+        logger.warning(
+            f"RSS yield {len(articles)} below threshold {threshold} — "
+            f"falling back to World News API"
+        )
+        articles += news_api.fetch_financial_news()
+    else:
+        logger.info(
+            f"RSS yield {len(articles)} meets threshold {threshold} — "
+            f"skipping World News API"
+        )
     if not articles:
         raise RuntimeError("No articles fetched")
 
@@ -46,11 +64,31 @@ def run_pipeline() -> tuple[str, int]:
     if not articles:
         raise RuntimeError("No valid articles after filtering")
 
-    # 2. Clean each article's content in place
+    # 2. Canonicalize URLs. Drop articles whose URL can't be parsed.
+    survivors = []
+    for a in articles:
+        try:
+            a["canonical_url"] = canonicalize_url(a["url"])
+            survivors.append(a)
+        except ValueError as e:
+            logger.warning(f"Dropping article — unparseable URL {a.get('url')!r}: {e}")
+    articles = survivors
+
+    # 3. Clean each article's content in place.
     for a in articles:
         a["content"] = cleaner.clean_article(a["content"])
 
-    # 3. Deduplicate
+    # 4. Compute content hash AFTER cleaning so ads/whitespace don't bleed in.
+    survivors = []
+    for a in articles:
+        try:
+            a["content_hash"] = compute_content_hash(a)
+            survivors.append(a)
+        except (KeyError, ValueError) as e:
+            logger.warning(f"Dropping article — bad content {a.get('url')!r}: {e}")
+    articles = survivors
+
+    # 5. Deduplicate
     articles = dedup.deduplicate_articles(articles)
 
     # 4. Persist to SQL (skips existing URLs)

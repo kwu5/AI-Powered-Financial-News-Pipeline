@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, or_
 from sqlalchemy.orm import declarative_base, sessionmaker
 from src.config import Settings
 
@@ -7,16 +7,23 @@ Base = declarative_base()
 
 class Article(Base):
     __tablename__ = "articles"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=False)
     content = Column(String, nullable=False)
-    url = Column(String, unique=True, nullable= False)
+    content_hash = Column(String, unique=True, nullable=False)
+    url = Column(String, unique=True, nullable=False)
+    canonical_url = Column(String, unique=True, nullable=False)
     source = Column(String)
     published_at = Column(String, nullable=False)
     fetched_at = Column(String, nullable=False)
+    extraction_method = Column(String, nullable=True)
     processed = Column(Boolean, default=False)
+    indexed = Column(Boolean, default=False)
+
+_ARTICLE_COLUMNS = {c.name for c in Article.__table__.columns}
+
 
 class DailyReport(Base):
     __tablename__ = "daily_reports"
@@ -35,15 +42,21 @@ class Database:
         self.SessionLocal = sessionmaker(bind=self.engine,expire_on_commit=False)
         
     
-    #insert articles, skip if URL already exists
+    #insert articles, skip if url / canonical_url / content_hash already exists
     def save_articles(self, articles:list) :
         session = self.SessionLocal()
         try:
             for a in articles:
-                existing = session.query(Article).filter_by(url=a["url"]).first()
+                existing = session.query(Article).filter(
+                    or_(
+                        Article.url == a["url"],
+                        Article.canonical_url == a["canonical_url"],
+                        Article.content_hash == a["content_hash"],
+                    )
+                ).first()
                 if existing:
                     continue
-                new_article = Article(**a)
+                new_article = Article(**{k: v for k, v in a.items() if k in _ARTICLE_COLUMNS})
                 session.add(new_article)
             session.commit()
         except Exception as e:

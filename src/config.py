@@ -19,5 +19,6 @@ class Settings(BaseSettings):
     DAILY_RUN_HOUR: int = 18
     OUTPUT_DIR: str = "./output"
     FEEDS_CONFIG_PATH: str = "./config/feeds.yaml"
+    RSS_YIELD_THRESHOLD: int = 15  # below this, fall back to World News API
 
 
