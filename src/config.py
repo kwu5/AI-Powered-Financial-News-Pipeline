@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     SIMILARITY_THRESHOLD: float = 0.85
     CHUNK_SIZE_TOKENS: int = 256      # all-MiniLM-L6-v2's truncation cap; eval axis in Ship H
     CHUNK_OVERLAP_TOKENS: int = 38    # ~15% of chunk size; tokens carried into the next chunk
+    RETRIEVAL_TOP_K: int = 5          # chunks retrieved per query for grounded Q&A; eval axis in Ship H
     DAILY_RUN_HOUR: int = 18
     OUTPUT_DIR: str = "./output"
     FEEDS_CONFIG_PATH: str = "./config/feeds.yaml"

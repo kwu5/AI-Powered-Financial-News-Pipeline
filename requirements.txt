@@ -21,3 +21,5 @@ trafilatura >= 1.8, <2
 newspaper3k == 0.2.8
 readability-lxml >= 0.8, <1
 lxml_html_clean >= 0.1, <1
+
+streamlit >= 1.37, < 2          #Ship D demo UI — grounded Q&A query box (run: streamlit run app.py)

@@ -1,8 +1,21 @@
 
 from typing import Dict, List
-from src.config import Settings 
+from src.config import Settings
 from openai import OpenAI
+from pydantic import BaseModel
 
+
+class GroundedLLMResponse(BaseModel):
+    """Flat structured-output schema for the grounded answer call.
+
+    Kept flat (no nested objects) because gpt-4o-mini's structured output is
+    most reliable that way. qa.py reads these three fields off the parsed result;
+    it builds the authoritative Citation list from the retrieved hits, not from
+    here — `used_markers` only tells us WHICH numbered sources the model cited.
+    """
+    answer: str                   # may contain inline [n] markers
+    used_markers: List[int]       # 1-based source numbers the model cited
+    answered_from_context: bool   # False -> context didn't contain the answer
 
 
 class LLMClient:
@@ -43,6 +56,48 @@ class LLMClient:
             max_tokens=2000
         )
         return response.choices[0].message.content 
+
+    def generate_grounded_answer(self, query: str, numbered_context: str) -> GroundedLLMResponse:
+        """Answer `query` using ONLY `numbered_context`, citing sources by number.
+
+        `numbered_context` is the "[1] <chunk>\\n\\n[2] <chunk>..." block qa.py
+        builds from the retrieved hits. The model must answer strictly from it,
+        cite each claim with the bracketed source number, and flag when the
+        context is insufficient instead of falling back on outside knowledge.
+        temperature=0 so Ships F/G can replay the same queries deterministically.
+        """
+        system_prompt = (
+            "You are a financial-news question answerer. Answer the user's "
+            "question using ONLY the numbered sources provided in the context. "
+            "Rules:\n"
+            "- Cite every claim with the bracketed source number it came from, "
+            "e.g. 'The Fed held rates [2].' Use the numbers exactly as given.\n"
+            "- List every source number you relied on in `used_markers`.\n"
+            "- If the context does not contain enough information to answer, set "
+            "`answered_from_context` to false and say you don't have enough "
+            "indexed context — do NOT use outside knowledge or guess.\n"
+            "- Otherwise set `answered_from_context` to true."
+        )
+        user_prompt = f"Question: {query}\n\nContext:\n{numbered_context}"
+        completion = self.client.beta.chat.completions.parse(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0,
+            response_format=GroundedLLMResponse,
+        )
+        parsed = completion.choices[0].message.parsed
+        # parse() can return None if the model refused; surface a safe insufficient-context
+        # result rather than letting qa.py dereference None.
+        if parsed is None:
+            return GroundedLLMResponse(
+                answer="I don't have enough indexed context to answer that.",
+                used_markers=[],
+                answered_from_context=False,
+            )
+        return parsed
 
     def classify_sentiment(self, text: str) -> str:
         response = self.client.chat.completions.create(

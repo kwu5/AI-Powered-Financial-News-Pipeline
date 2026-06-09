@@ -109,9 +109,9 @@ Scheduling lives in `doc/june-weekly-schedule.md`, not here. This table is order
 |---|---|---|
 | A | Ingestion overhaul — RSS-first, full-text extraction, source health | Done |
 | B | Dedup Stages 1–2 (URL canon + content hash); wipe + recreate DB | Done |
-| C | Chunking layer + chunk-level embeddings indexed in ChromaDB | **Done** |
-| D | Retriever + grounded cited Q&A; Streamlit skeleton | **Current** |
-| E | Labeled test set (50–100 query/relevant-doc pairs) | Planned |
+| C | Chunking layer + chunk-level embeddings indexed in ChromaDB | Done |
+| D | Retriever + grounded cited Q&A; Streamlit skeleton | **Done** |
+| E | Labeled test set (50–100 query/relevant-doc pairs) | **Current** |
 | F | Eval harness pt.1 — retrieval precision/recall + latency/cost | Planned |
 | G | Eval harness pt.2 — RAGAS faithfulness + answer-relevance | Planned |
 | H | Multi-config comparison runner + written findings | Planned |
@@ -186,6 +186,68 @@ not on ChromaDB upsert idempotency.
 
 **Deferred to Ship D:** retriever wrapper over `search_similar` (query embed +
 top-k), the `GroundedAnswer` schema, cited-answer generation, Streamlit skeleton.
+
+### Ship D — Retriever + grounded cited Q&A + Streamlit skeleton (DONE)
+
+**Full detail:** `doc/ship-d-retriever-qa.md` (this section is the master-plan
+summary; the doc is the working copy with watch-outs).
+
+**Goal:** Turn Ship C's chunk index into a query-time RAG path — retrieve top-k
+chunks for a question and generate a **grounded answer constrained to that
+context** with inline `[n]` citations that resolve to real source articles,
+surfaced through a minimal Streamlit app. This is **the demo**; its screenshot is
+what makes the posted link demo-backed (`doc/june-weekly-schedule.md`, Week 1).
+
+**Why now:** Ship C made retrieval possible (passage-sized vectors with
+`article_id` in metadata); Ship D makes it usable. Ships E–H all evaluate the
+`answer_query()` seam, so it must exist first.
+
+**Resolved up front:**
+- **Citations are built from the retrieved chunks, not the LLM.** The model cites
+  by source *number*; we map numbers back to the authoritative
+  `chunk_id`/`article_id`/`url` from retrieval. The model can mis-number a
+  citation but cannot fabricate its target.
+- **No new DB accessors** — ChromaDB chunk metadata already carries everything
+  citations need (`article_id`, `url`, `title`, `published_at`).
+- **ChromaDB query results are nested one level** (`results["ids"][0]`…); the
+  retriever flattens this so `[0]` never leaks downstream.
+- The daily-briefing path is untouched; Ship D adds a parallel `src/rag/` path.
+
+#### Tasks
+
+- [x] **Config** (`src/config.py`) — add `RETRIEVAL_TOP_K: int = 5` (eval axis in
+      Ship H).
+- [x] **`src/rag/retriever.py`** — `retrieve(query, top_k) -> list[dict]`: embed
+      query → `search_similar` → flatten to hit dicts `{chunk_id, article_id,
+      text, title, source, url, published_at, distance}`; empty → `[]`.
+- [x] **`src/rag/qa.py`** — `Citation` / `GroundedAnswer` schemas +
+      `answer_query(query, top_k) -> GroundedAnswer`: retrieve → empty-hit
+      short-circuit (no LLM call, `answered_from_context=False`) → numbered
+      context block → grounded generation → build citations from `hits` by marker.
+      `Citation` carries `title`/`source`/`url` (decision (b)) so it's
+      self-contained for the UI + eval.
+- [x] **`LLMClient.generate_grounded_answer`** — OpenAI structured output
+      (`parse`, flat response model: `answer`, `used_markers`,
+      `answered_from_context`), `temperature=0`, "answer only from context" prompt.
+- [x] **`app.py`** — Streamlit: query box → `answer_query` → answer + Sources
+      list; minimal styling (polish is Ship I).
+- [x] **Tests** — retriever flatten/empty; qa empty-hits no-LLM-call, citation
+      marker resolution, out-of-range marker dropped. (9 unit tests, green.)
+- [x] **Smoke test** (`tests/smoke_ship_d.py`) — in-domain query → cited answer
+      whose `url` matches a hit; out-of-domain → `answered_from_context=False`.
+
+**Done when:** a finance question in Streamlit returns a grounded, inline-cited
+answer with a resolved source list; out-of-domain/nothing-retrieved reports
+insufficient context instead of fabricating; `answer_query()` is importable as the
+seam Ship F will evaluate.
+
+**Watch-outs:** flatten the ChromaDB `[0]` once in the retriever; build citations
+from retrieval not the LLM; handle the zero-hit case before any LLM call;
+`temperature=0` for eval reproducibility.
+
+**Deferred to later ships:** labeled test set (E); retrieval P/R + latency/cost
+(F); RAGAS faithfulness/answer-relevance (G); multi-config sweep (H); distance
+relevance-floor + Streamlit polish (I).
 
 ## Risk register
 
