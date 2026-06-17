@@ -111,11 +111,11 @@ Scheduling lives in `doc/june-weekly-schedule.md`, not here. This table is order
 | B | Dedup Stages 1–2 (URL canon + content hash); wipe + recreate DB | Done |
 | C | Chunking layer + chunk-level embeddings indexed in ChromaDB | Done |
 | D | Retriever + grounded cited Q&A; Streamlit skeleton | **Done** |
-| E | Labeled test set (50–100 query/relevant-doc pairs) | **Current** |
-| F | Eval harness pt.1 — retrieval precision/recall + latency/cost | Planned |
+| E | Labeled test set (50–100 query/relevant-doc pairs) | **Done** |
+| F | Eval harness pt.1 — retrieval precision/recall + latency/cost | **In progress** |
 | G | Eval harness pt.2 — RAGAS faithfulness + answer-relevance | Planned |
 | H | Multi-config comparison runner + written findings | Planned |
-| I | Streamlit polish + README finalize; stretch: signal extraction | Planned |
+| I | Streamlit polish + README finalize; **audit LLM-labeled testset half (Ship E)**; stretch: signal extraction | Planned |
 
 **Cadence rule:** at each ship boundary, re-read this file and rewrite only the
 next ship's detail section to full resolution. Keep one ship detailed at a time.
@@ -248,6 +248,135 @@ from retrieval not the LLM; handle the zero-hit case before any LLM call;
 **Deferred to later ships:** labeled test set (E); retrieval P/R + latency/cost
 (F); RAGAS faithfulness/answer-relevance (G); multi-config sweep (H); distance
 relevance-floor + Streamlit polish (I).
+
+### Ship E — Labeled test set (50–100 query/relevant-article pairs) (DONE)
+
+**Full detail:** `doc/ship-e-testset.md` (this section is the master-plan summary;
+the doc is the working copy with watch-outs).
+
+**Goal:** Produce `eval/testset.jsonl` — 50–100 finance questions, each labeled
+with the set of corpus **article ids** relevant to it. This is the hand-verified
+ground truth Ships F–G score `answer_query()`/`retrieve()` against. Relevance is
+labeled at the **article** level (a chunk is relevant iff its `article_id` is in
+the query's `relevant_article_ids`).
+
+**Why now:** Ship D made `answer_query()` real but unmeasured. The eval harness is
+the headline differentiator, and every metric in F–H scores against this set —
+without trustworthy labels there is nothing to measure. Hand-verification is the
+deliverable's value, not overhead.
+
+**Decisions (locked 2026-06-09):**
+- **Hybrid query sourcing** — mostly LLM-generated from indexed articles (fast,
+  guaranteed answerable), plus ~10 hand-written hard / out-of-domain queries.
+- **Pooling + spot-check** — pool candidates via `retrieve()` at a high pool-depth
+  (≈20–30, deliberately larger than `RETRIEVAL_TOP_K` to avoid biasing labels
+  toward the system being evaluated), label them, then scan a few extras per query.
+- **Small CLI helper** labels interactively (`y`/`n`/`s`) and writes the JSONL —
+  resumable, so the multi-day manual job can stop and continue.
+
+**Schema** (`eval/testset.jsonl`, one object per line): `query_id`, `query`,
+`relevant_article_ids: list[int]` (`[]` for out-of-domain), `source: "llm"|"hand"`,
+`type: "in_domain"|"out_of_domain"`, `notes`. Out-of-domain rows (a flagged ~5–10
+minority) test Ship D's abstention path and stay out of the in-domain P/R averages.
+
+#### Tasks (built by the user)
+
+- [ ] `eval/gen_queries.py` — LLM-generate candidate questions from sampled DB
+      articles → `eval/queries_candidates.jsonl` for human curation; dedup; then
+      hand-add ~10 hard/out-of-domain queries.
+- [ ] `eval/label_testset.py` — pool via `retrieve(query, POOL_DEPTH)`, dedup hits
+      to unique `article_id`, prompt y/n/skip per candidate, spot-check pass, append
+      to `eval/testset.jsonl`. **Resumable** (skip already-labeled `query_id`s).
+      `POOL_DEPTH` is a local constant, not a `Settings` field.
+- [ ] Tiny `get_articles_by_ids()` / sample accessor in `database.py` — only if the
+      spot-check path needs articles outside the pool (pooled hits already carry
+      title/source/text).
+- [ ] `eval/validate_testset.py` (or pytest) — all lines parse; unique `query_id`s;
+      every relevant id exists; out-of-domain ⇔ empty relevant set; 50–100 rows;
+      in-domain rows have ≥1 relevant id.
+- [ ] Commit `eval/testset.jsonl` (ground truth belongs in git; confirm
+      `.gitignore` doesn't sweep `eval/`).
+
+**Done when:** `eval/testset.jsonl` holds 50–100 hand-verified rows passing the
+validation script, every relevant id resolves to a real article, the out-of-domain
+subset is present and flagged, and the file is committed — Ship F can load it and
+score retrieval with no further labeling.
+
+**Watch-outs:** pooling bias (pool deep + spot-check; note union-pooling across
+configs for Ship H); dedup chunks→articles when pooling; keep the helper resumable
+and append-only; the model proposes queries but **you** decide relevance; keep
+out-of-domain a flagged minority so it doesn't distort P/R.
+
+**Labeling split (2026-06-17, time-boxed):** behind schedule, so done-first over
+perfect — the in-domain queries are split in half: the assistant labels its half
+directly from drafted suggestions, the user hand-verifies the other half (working
+from the same drafts). Out-of-domain rows are mechanical (`[]`). The
+assistant-labeled half — plus q010-style pooling misses where `retrieve()` never
+surfaced the seed — is **flagged for audit in Ship I**, restoring full
+hand-verification once there's time.
+
+**Deferred:** retrieval P/R + latency/cost (F); RAGAS faithfulness/answer-relevance
+(G); multi-config sweep + union-pooling (H); audit of the assistant-labeled testset
+half (I).
+
+### Ship F — Eval harness pt.1: retrieval P/R + latency/cost (IN PROGRESS)
+
+**Full detail:** `doc/ship-f-retrieval-eval.md` (to be written as the working copy;
+this section is the master-plan summary).
+
+**Goal:** Load `eval/testset.jsonl` and score `retrieve()` against it — report
+retrieval **precision/recall (and MRR) at the article level**, the out-of-domain
+**abstention** rate as a separate number, and **latency** per query. This is the
+first half of the headline differentiator: the test set built in Ship E finally
+gets used to put numbers on retrieval quality.
+
+**Why now:** Ship E produced trustworthy ground truth; nothing scores against it
+yet. Ship F turns `answer_query()`/`retrieve()` from "works in the demo" into
+"measurably this good," and establishes the metric plumbing Ships G–H extend.
+
+**Resolved up front:**
+- **Article-level scoring.** A retrieved chunk counts as a hit iff its
+  `article_id` ∈ the query's `relevant_article_ids`. Dedup chunks→articles before
+  scoring so one article can't be counted twice (mirrors the Ship E pooling rule).
+- **In-domain vs out-of-domain split.** P/R/MRR are computed over in-domain
+  queries only. Out-of-domain rows (`relevant_article_ids == []`) are scored
+  separately as abstention: did `answer_query()` return `answered_from_context=False`?
+  Never fold OOD into the P/R averages (Ship E watch-out).
+- **Cost ≈ free for retrieval.** Embedding is the local MiniLM model and ChromaDB
+  is local, so the retrieval path has ~no API cost — report **latency**
+  (embed + query, with percentiles) and note cost is N/A until the LLM-judge in
+  Ship G. Use `temperature=0` paths already in place for reproducibility.
+- **Report at `RETRIEVAL_TOP_K` but sweep a few k.** Headline numbers at the
+  served `top_k=5`, plus P/R at k ∈ {1,3,5,10} so Ship H has a baseline curve.
+
+**Tasks (built by the user):**
+- [ ] `src/evaluation/testset.py` — loader: parse `eval/testset.jsonl` into typed
+      rows (`query_id, query, relevant_article_ids, source, type, notes`);
+      basic integrity asserts (reuse/much like `validate_testset.py`).
+- [ ] `src/evaluation/metrics.py` — pure functions over (retrieved article_ids,
+      relevant set): `precision_at_k`, `recall_at_k`, `mrr`; plus an
+      `abstention_correct(answered_from_context, is_out_of_domain)` helper. No I/O.
+- [ ] `src/evaluation/harness.py` — iterate the test set, call `retrieve()` (and
+      `answer_query()` for OOD abstention), time each call, dedup chunk hits to
+      articles, aggregate per-k metrics split by `type`, return a results object.
+- [ ] `evaluate.py` — CLI entry point: `--top-k`, `--k-sweep`, `--out`; run the
+      harness and write a Markdown/JSON report to `output/eval/`.
+- [ ] Report: per-k precision/recall/MRR table, abstention accuracy, latency
+      p50/p95, and an explicit note that Ship E's pooling misses bias recall
+      (flagged for the Ship I audit).
+
+**Done when:** `python evaluate.py` loads the committed test set and prints
+article-level P/R/MRR at the served top-k (plus a small k-sweep), reports OOD
+abstention accuracy separately, and reports per-query latency — with the
+pooling-bias caveat stated in the output.
+
+**Watch-outs:** dedup chunks→articles before scoring; keep OOD out of P/R; the
+recall ceiling is bounded by Ship E's pooling (don't read low recall as purely a
+retriever failure — some relevant articles were never pooled, hence the audit);
+hold `top_k`/chunk params at defaults here — sweeping configs is Ship H, not F.
+
+**Deferred:** RAGAS faithfulness/answer-relevance (G); multi-config sweep +
+union-pooling (H); distance relevance-floor tuning (I).
 
 ## Risk register
 

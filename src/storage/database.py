@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, or_
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, or_, func
 from sqlalchemy.orm import declarative_base, sessionmaker
 from src.config import Settings
 
@@ -128,7 +128,34 @@ class Database:
             print(f"Error:{e}")
         finally:
             session.close()
-    
+
+    # Eval tooling (Ship E). Random sample of articles with non-trivial content —
+    # seeds for eval/gen_queries.py and the spot-check pass in eval/label_testset.py.
+    # func.random() shuffles in SQLite; length filter drops stubs nothing can be asked about.
+    def get_articles_sample(self, n: int, min_content_len: int = 200) -> list:
+        session = self.SessionLocal()
+        try:
+            return (
+                session.query(Article)
+                .filter(func.length(Article.content) >= min_content_len)
+                .order_by(func.random())
+                .limit(n)
+                .all()
+            )
+        finally:
+            session.close()
+
+    # Eval tooling (Ship E). Fetch articles by id — used by the labeler's spot-check
+    # and by eval/validate_testset.py to confirm every relevant id resolves to a real row.
+    def get_articles_by_ids(self, ids: list) -> list:
+        if not ids:
+            return []
+        session = self.SessionLocal()
+        try:
+            return session.query(Article).filter(Article.id.in_(ids)).all()
+        finally:
+            session.close()
+
 
 
 
