@@ -112,7 +112,7 @@ Scheduling lives in `doc/june-weekly-schedule.md`, not here. This table is order
 | C | Chunking layer + chunk-level embeddings indexed in ChromaDB | Done |
 | D | Retriever + grounded cited Q&A; Streamlit skeleton | **Done** |
 | E | Labeled test set (50–100 query/relevant-doc pairs) | **Done** |
-| F | Eval harness pt.1 — retrieval precision/recall + latency/cost | **In progress** |
+| F | Eval harness pt.1 — retrieval precision/recall + latency/cost | **Done** |
 | G | Eval harness pt.2 — RAGAS faithfulness + answer-relevance | Planned |
 | H | Multi-config comparison runner + written findings | Planned |
 | I | Streamlit polish + README finalize; **audit LLM-labeled testset half (Ship E)**; stretch: signal extraction | Planned |
@@ -319,10 +319,10 @@ hand-verification once there's time.
 (G); multi-config sweep + union-pooling (H); audit of the assistant-labeled testset
 half (I).
 
-### Ship F — Eval harness pt.1: retrieval P/R + latency/cost (IN PROGRESS)
+### Ship F — Eval harness pt.1: retrieval P/R + latency/cost (DONE)
 
-**Full detail:** `doc/ship-f-retrieval-eval.md` (to be written as the working copy;
-this section is the master-plan summary).
+**Full detail:** `doc/ship-f-retrieval-eval.md` (this section is the master-plan
+summary; the doc is the working copy with watch-outs).
 
 **Goal:** Load `eval/testset.jsonl` and score `retrieve()` against it — report
 retrieval **precision/recall (and MRR) at the article level**, the out-of-domain
