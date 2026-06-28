@@ -113,7 +113,7 @@ Scheduling lives in `doc/june-weekly-schedule.md`, not here. This table is order
 | D | Retriever + grounded cited Q&A; Streamlit skeleton | **Done** |
 | E | Labeled test set (50–100 query/relevant-doc pairs) | **Done** |
 | F | Eval harness pt.1 — retrieval precision/recall + latency/cost | **Done** |
-| G | Eval harness pt.2 — faithfulness + answer-relevance (custom LLM-judge) | **In progress** |
+| G | Eval harness pt.2 — faithfulness + answer-relevance (custom LLM-judge) | **Done** |
 | H | Multi-config comparison runner + written findings | Planned |
 | I | Streamlit polish + README finalize; **audit LLM-labeled testset half (Ship E)**; stretch: signal extraction | Planned |
 
@@ -378,7 +378,13 @@ hold `top_k`/chunk params at defaults here — sweeping configs is Ship H, not F
 **Deferred:** RAGAS faithfulness/answer-relevance (G); multi-config sweep +
 union-pooling (H); distance relevance-floor tuning (I).
 
-### Ship G — Eval harness pt.2: faithfulness + answer-relevance (IN PROGRESS)
+### Ship G — Eval harness pt.2: faithfulness + answer-relevance (DONE)
+
+**Result (2026-06-19, full in-domain set, defaults):** faithfulness **0.965**
+(n=78), answer-relevance **0.818** (n=78); ~$0.048 per cold run, re-runs hit the
+judge cache (≈ answer-gen only). Live-verified end-to-end; 17/17 judge unit tests
+green. (`evaluate.py` also got a UTF-8 stdout fix so the report prints on the
+Windows cp1252 console.)
 
 **Full detail:** `doc/ship-g-judge-eval.md` (this section is the master-plan
 summary; the doc is the working copy with watch-outs).
@@ -479,6 +485,84 @@ outputs so a re-run is free, and states the judge-variance + single-config cavea
 **Deferred:** multi-config sweep (chunk size, embedding model, top_k) + union-
 pooling → **Ship H**; distance relevance-floor tuning → **Ship I**; audit of the
 assistant-labeled testset half → **Ship I**.
+
+### Ship H — Multi-config comparison runner + written findings (NEXT)
+
+**Full detail:** `doc/ship-h-config-sweep.md` (to be drafted; this section is the
+master-plan summary). Resolved to full resolution per the cadence rule at the
+Ship G boundary (2026-06-19).
+
+**Goal:** Run the eval harness across a small grid of retrieval/index configs and
+write up which one wins. For each config, run **both** metric halves — Ship F
+retrieval P/R/MRR + latency, and Ship G faithfulness + answer-relevance + cost —
+collect them into one comparison table, and name a recommended config in a written
+findings doc. This is the payoff of building the harness: turning "measurably this
+good" into "measurably better than these alternatives," the eval-backed config
+story that is the interview/README claim.
+
+**Why now:** Ships F + G built and verified both metric halves at the *default*
+config. Nothing yet varies the knobs the plan flagged as eval axes (chunk size,
+embedding model, top_k). H is the last eval ship; I is polish/README/audit. H must
+follow G because it re-runs G's generation eval per config.
+
+**Decisions (locked 2026-06-26 — both forks resolved: Fork A = hold MiniLM fixed; Fork B = defer union-pooling):**
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Sweep shape | **OFAT** (one-factor-at-a-time) around the default baseline, *not* a full grid | Full grid explodes re-index cost; OFAT keeps it bounded (risk register hard-cap) and still shows each axis's effect |
+| Axes + values | chunk_size ∈ {128, **256**, 512}; top_k ∈ {3, **5**, 10}; embedding_model **fixed at all-MiniLM-L6-v2** (bold = current default/baseline) | Chunk size + top_k are the cheap, defensible axes; **Fork A resolved — mpnet cut** (expensive, doubles index builds, nice-to-have only) → 3 index builds, not 6 |
+| Index isolation | Build each chunk_size config into a **throwaway ChromaDB persist dir** under `data/chroma_sweep/<config>/` (gitignored); canonical `data/chroma/` is never touched | Preserves the Ship F/G "read-only over the canonical corpus" rule; re-chunk/re-embed reads articles from SQLite read-only |
+| top_k handling | Query-time only — **no re-index**; sweep it innermost over an already-built index | Changing top_k doesn't change stored chunks/vectors; nearly free (Ship F already k-swept retrieval) |
+| Pooling bias | **Lean on the bias-free generation metrics** (faithfulness/relevance judge answer-vs-context, independent of labels) for the headline config call; report retrieval P/R with the existing pooling-bias caveat. **Fork B resolved — defer union-pooling to the Ship I audit** | Retrieval recall is biased toward the config the testset was pooled at (Ship E watch-out); generation metrics are not, and union-pooling is already on the Ship I list |
+| Cost | Each config pays a full generation-eval (~$0.05) because the judge cache correctly busts when answer+context change per config; OFAT grid ≈ a handful of runs → well under $1 total | Risk register: budget per run, hard-cap the grid |
+
+**Seams it consumes (reuse, do not fork):** `evaluate_retrieval()` + `evaluate_generation()` + `EvalReport`/`GenerationReport` + `_percentile` (`src/evaluation/harness.py`); `JudgeCache` (`src/evaluation/judge_cache.py`); `chunk_article` (`src/rag/chunker.py`); `VectorStore.add_chunks` + `Retriever` (`src/storage/vector_store.py`, `src/rag/retriever.py`) — but pointed at a per-config persist dir; `EmbeddingGenerator` (`src/processing/embeddings.py`) parameterized by model name; `load_testset` + the same `eval/testset.jsonl` held fixed across all configs.
+
+**Tasks (built by the user):**
+- [ ] **Sweep config model** — a small dataclass/list enumerating the OFAT grid
+      (`chunk_size`, `overlap`, `embedding_model`, `top_k`) around the baseline.
+- [ ] **Per-config index builder** (`src/evaluation/sweep.py`) — read articles from
+      SQLite (read-only), chunk at the config's size, embed with the config's model,
+      write to an isolated ChromaDB persist dir `data/chroma_sweep/<config>/`; return
+      a `Retriever` bound to it. Skip rebuild if the dir already exists (resumable).
+- [ ] **Sweep runner** — for each config: build/point at its index → run
+      `evaluate_retrieval` + `evaluate_generation` → collect into one comparison row.
+      Group by (chunk, model) so re-index happens once per index; vary top_k innermost.
+- [ ] **CLI** — `evaluate.py --sweep` (reuse `--testset`/`--out`); writes
+      `output/eval/sweep_<date>.{md,json}` with the config-comparison table; prints a
+      token + estimated-$ total across the grid.
+- [ ] **Findings doc** (`doc/ship-h-findings.md`) — comparison table, the recommended
+      config + why, and caveats (pooling-bias on retrieval recall; judge variance;
+      single test set; OFAT not full grid).
+- [ ] **Tests** (`tests/test_sweep.py`) — config-grid generation; sweep aggregation /
+      ranking over **mocked** per-config harness results (no real index build, no API).
+
+**Done when:** `python evaluate.py --sweep` builds isolated per-config indexes,
+runs both eval halves against the fixed test set, writes a comparison table ranking
+configs on retrieval P/R/MRR + faithfulness + answer-relevance + latency + cost, and
+`doc/ship-h-findings.md` names a recommended config with reasoning — all while
+`data/chroma/` and `data/news.db` stay untouched. If results are inconclusive, ship
+with the defaults (chunk 256, top_k 5, MiniLM) per the risk register and say so.
+
+**Watch-outs:**
+- **Never write to canonical `data/chroma/`** — every config builds into a throwaway
+  persist dir; tear down or gitignore `data/chroma_sweep/`.
+- **Embedding-model axis is the expensive, cuttable one** (FORK A) — it doubles
+  re-index time and pulls a larger model; if time-boxed, fix the embedder and sweep
+  only chunk + top_k (release valve).
+- **Pooling bias hits retrieval recall, not generation metrics** — lean on
+  faithfulness/relevance for the config call; state the recall caveat; full
+  union-pooling is FORK B / the Ship I audit.
+- **Hold the test set fixed** across all configs or the comparison isn't
+  apples-to-apples.
+- **Order the sweep to minimize re-indexing** — chunk/model change = expensive
+  rebuild; top_k change = free query-time knob; loop top_k innermost.
+- **Judge cache busts correctly across configs** (answer+context differ) — correct,
+  but means each config pays full generation-eval cost; budget for it.
+
+**Deferred to Ship I:** distance relevance-floor tuning (abstain when best distance
+is too large); audit of the assistant-labeled testset half; full union-pooling
+re-labeling if not done here; Streamlit polish + README finalize.
 
 ## Risk register
 

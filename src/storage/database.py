@@ -156,6 +156,17 @@ class Database:
         finally:
             session.close()
 
+    # Eval tooling (Ship H). Read-only fetch of the WHOLE corpus, ordered by id so
+    # the sweep re-chunks deterministically. Unlike get_unindexed_articles() (which
+    # filters indexed=False and is empty once the canonical pipeline has run), the
+    # sweep rebuilds a fresh throwaway index from every article, so it needs all rows.
+    def get_all_articles(self) -> list:
+        session = self.SessionLocal()
+        try:
+            return session.query(Article).order_by(Article.id).all()
+        finally:
+            session.close()
+
 
 
 
